@@ -4,14 +4,14 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; http://www.4clojure.com/problem/128
-;; Write a function which converts (for example) the string "SJ" into a map of {:suit :spade, :rank 9} . 
+;; Write a function which converts (for example) the string "SJ" into a map of {:suit :spade, :rank 9} .
 ;; A ten will always be represented with the single character "T", rather than the two characters "10" .
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ; 1. Def a function to take the card and split the input into suit/rank (assume first character is always suit, second always rank.
 (defn split-2-suit-rank [card]
   (let [[suit rank] (cs/upper-case card)] ;note - forced an upper case to avoid possible bugs
-    [suit rank] 
+    [suit rank]
     ))
 
 (assert (= (split-2-suit-rank "H5") [\H \5]))
@@ -22,7 +22,7 @@
             \D :diamond
             \S :spade
             \C :club})
-
+;; AP--
 ; 3. Def a rank map which will be used to convert the rank character into a :rank
 (def ranks {\2 0  ;; AP-- same comments as above
                \3 1
@@ -54,7 +54,7 @@
                              S8 S9 ST SJ SQ SK SA])))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; http://www.4clojure.com/problem/178 
+;; http://www.4clojure.com/problem/178
 ;; Following on from Recognize Playing Cards, determine the best poker hand that can be made with five cards. The hand rankings are listed below for your convenience:
 ;; 1. Straight flush: All cards in the same suit, and in sequence
 ;; 2. Four of a kind: Four of the cards have the same rank
@@ -83,6 +83,18 @@
             (= (apply + (map #(- % (apply min new-ranks)) new-ranks)) 6))
           ))))
 
+;; AP-- I guess I find the above code VERY difficult to read and reason about.
+;; It's also wrong: note:!
+(assert (not (in-sequence? ["HA" "HK" "SK" "ST" "HT"]))) ; fails assertion!
+;; That's because the sum of the ranks is still 10, but
+;; each card is not distinct.  So, no, this code is broken.
+;; It also shows how hard it is to write good tests that cover
+;; every case: each of your "negative" tests below failed to detect the problem!
+;;
+;; So, c.f. my straight?, small-straight? and regular-straight? functions in my solution.
+
+
+
 (assert (= true (in-sequence? ["HA" "HK" "HQ" "HJ" "HT"])))
 (assert (= true (in-sequence? ["HA" "H2" "S3" "D4" "C5"])))
 (assert (= false (in-sequence? ["HA" "D2" "H3" "C9" "DJ"])))
@@ -98,12 +110,21 @@
   [hand]
   (let [[s1 s2 s3 s4 s5] (map :suit (map convert-card hand))]
     (= s1 s2 s3 s4 s5)))
+;; AP-- yes, or, better yet, since we don't care about s1 -> s5:
+(defn ap-same-suit?
+  "Determine in all cards have the same suit."
+  [hand]
+  (apply = (map :suit (map convert-card hand))))
 
 (assert (= true (same-suit? ["HA" "HK" "HQ" "HJ" "HT"])))
 (assert (= false (same-suit? ["HA" "D2" "H3" "C9" "DJ"])))
 
-;; 3. write a four-same-rank? function 
+;; 3. write a four-same-rank? function
 
+;; AP-- One big problem with the entire code base is how
+;; every low level function needs to start by calling CONVERT-HAND.
+;; This should have been done once in the top level function, and
+;; all these utilities should work on the parsed, internal representation.  Agreed?
 (defn four-same-rank?
   "Determine if any four cards have the same rank."
   [hand]
@@ -111,10 +132,24 @@
     (or (apply = (take 4 (sort all-ranks)))
         (apply = (take 4 (reverse (sort all-ranks)))))))
 
+;; AP-- Besides being... funky... as an algorithm choice, you can at least clarify it thusly:
+(defn ap-four-same-rank?
+  "Determine if any four cards have the same rank."
+  [hand]
+  (let [[a b c d e] (sort (map :rank (map convert-card hand)))]
+    (or (= a b c d)
+        (= b c d e)))) ; Does that seem clearer to you?
+
+
 (assert (= true (four-same-rank? ["HA" "DA" "CA" "SA" "DJ"])))
 (assert (= false (four-same-rank? ["HA" "DK" "CQ" "SA" "DJ"])))
 
-;; 4. write a full-house? function 
+;; 4. write a full-house? function
+
+;; AP-- The whole idea of doing
+;; (take N (sort all-ranks)) needs to be encapsulated and given a name.
+;; Constant repetition of this idiom makes the code very hard to read and error prone.
+;; Imagine trying to track down a subtle bug where the 2 and 3 where inadvertently interchanged!
 
 (defn full-house?
   "Determine in there is a 3 of a kind and a 2 of a kind in the hand."
@@ -161,6 +196,10 @@
 (defn pair?
   "Determine if any two cards have the same rank"
   [hand]
+;; AP-- Look how hard this is compared to just getting the
+;; rank frequencies and seeing if there's a 2 in there!  :-(
+;; As soon as the PM wants you to implement new rules of poker, say, with
+;; 7 cards, this whole code totally breaks down.  There is no reusability.
   (let [[& all-ranks] (map :rank (map convert-card hand))]
     (or (apply = (take 2 (sort all-ranks)))              ; case: 1 1 2 3 4
         (apply = (take 2 (drop 1 (sort all-ranks))))     ; case: 1 2 2 3 4
@@ -171,13 +210,15 @@
 (assert (= true (pair? ["HA" "DK" "CQ" "SA" "DJ"])))
 (assert (= false (pair? ["HA" "DK" "CQ" "SJ" "DT"])))
 
-;; 7. write a straight-flush? function by joining the two requirements 
+;; 7. write a straight-flush? function by joining the two requirements
 
 (defn straight-flush?
   "Determine if the hand meets the requirements of both being in-sequence and all of the same-suit?"
   [hand]
   (= true (in-sequence? hand) (same-suit? hand)) ; is combining these functions an alternative solution for this?
-  )
+  ;; AP-- The more common way of writing this is:
+  (and (in-sequence? hand)
+       (same-suit? hand)))
 
 (assert (= true (straight-flush? ["HA" "HK" "HQ" "HJ" "HT"])))
 (assert (= false (straight-flush? ["HA" "DK" "CQ" "SJ" "DT"])))
@@ -185,7 +226,7 @@
 
 ;; 9. wrap it all up:
 
-;; This list is ordered from best to worst hand. A high card is purposely missing from the bottom of the list as 
+;; This list is ordered from best to worst hand. A high card is purposely missing from the bottom of the list as
 ;; it becomes the default for the best-nad function.
 
 (def hand-types '((:straight-flush straight-flush?)
@@ -200,9 +241,27 @@
 
 
 (defn best-hand
-  "Find the best hand from the cards by reducing the ordered hand-types list from worst to best and returning the last matching hand (i.e. the best match). 
+  "Find the best hand from the cards by reducing the ordered hand-types list from worst to best and returning the last matching hand (i.e. the best match).
    If no hand matches, then best-hand returns the default :high-card"
   [hand]
+  ;; AP-- This is a case where reduce is a terrible idea, for the following reasons:
+  ;; 1. the list you're reducing over is known at compile time, so you can just
+  ;;    do a COND
+  ;; 2. RESOLVE below is VERY expensive
+  ;; 3. You're really trying to do the first matching thing, so you could have used
+  ;;    (first (filter matching-pred hand-types)) sort of construct.
+  ;; 4. You can get away without needing resolve by just storing the function ITSELF, instead
+  ;; of its name, in your list, e.g.
+  (def ap-hand-types
+    [(:straight-flush straight-flush?)
+     (:four-of-a-kind four-same-rank?)
+     (:full-house full-house?)
+     (:flush same-suit?)
+     (:straight in-sequence?)
+     (:three-of-a-kind three-of-a-kind?)
+     (:two-pair two-pairs?)
+     (:pair pair?)])
+  ;; then you can just call (second input) because it IS a function.
   (reduce (fn [best input]
             (if (= ((resolve (symbol (second input))) hand) true)
               (first input)
@@ -222,3 +281,6 @@
 (assert (= :full-house (best-hand ["HA" "DA" "CA" "HJ" "DJ"])))
 (assert (= :four-of-a-kind (best-hand ["HA" "DA" "CA" "SA" "DJ"])))
 (assert (= :straight-flush (best-hand ["HA" "HK" "HQ" "HJ" "HT"])))
+
+
+;; AP-- I hope this helped!
